@@ -306,12 +306,6 @@ module openconfig-if-aggregate {
       description
         "Operational value of the protocol partner's key";
     }
-
-    // TODO: rjs: unclear whether this is required, it is referenced
-    //            elsewhere under the state container. The grouping
-    //            does not exist.
-    // added the new group below to provide LACP statistics.
-    // uses aggregation-lacp-statistic;
   }
 
 grouping aggregation-lacp-members-statistics {
