@@ -133,6 +133,143 @@ module openconfig-if-aggregate {
       defined and managed";
   }
 
+  typedef aggregation-hash {
+	type enumeration {
+		enum LAYER2 {
+			description "Uses XOR of hardware MAC addresses and packet type ID
+		field to generate the hash. The formula is
+
+		hash = source MAC XOR destination MAC XOR packet type ID
+		slave number = hash modulo slave count
+
+		This algorithm will place all traffic to a particular
+		network peer on the same slave.
+
+		This algorithm is 802.3ad compliant.";
+		}
+		enum LAYER2_3 {
+			description "This policy uses a combination of layer2 and layer3
+		protocol information to generate the hash.
+
+		Uses XOR of hardware MAC addresses and IP addresses to
+		generate the hash.  The formula is
+
+		hash = source MAC XOR destination MAC XOR packet type ID
+		hash = hash XOR source IP XOR destination IP
+		hash = hash XOR (hash RSHIFT 16)
+		hash = hash XOR (hash RSHIFT 8)
+		And then hash is reduced modulo slave count.
+
+		If the protocol is IPv6 then the source and destination
+		addresses are first hashed using ipv6_addr_hash.
+
+		This algorithm will place all traffic to a particular
+		network peer on the same slave.  For non-IP traffic,
+		the formula is the same as for the layer2 transmit
+		hash policy.
+
+		This policy is intended to provide a more balanced
+		distribution of traffic than layer2 alone, especially
+		in environments where a layer3 gateway device is
+		required to reach most destinations.
+
+		This algorithm is 802.3ad compliant.";
+		}
+		enum LAYER3_4 {
+			description "This policy uses upper layer protocol information,
+		when available, to generate the hash.  This allows for
+		traffic to a particular network peer to span multiple
+		slaves, although a single connection will not span
+		multiple slaves.
+
+		The formula for unfragmented TCP and UDP packets is
+
+		hash = source port, destination port (as in the header)
+		hash = hash XOR source IP XOR destination IP
+		hash = hash XOR (hash RSHIFT 16)
+		hash = hash XOR (hash RSHIFT 8)
+		And then hash is reduced modulo slave count.
+
+		If the protocol is IPv6 then the source and destination
+		addresses are first hashed using ipv6_addr_hash.
+
+		For fragmented TCP or UDP packets and all other IPv4 and
+		IPv6 protocol traffic, the source and destination port
+		information is omitted.  For non-IP traffic, the
+		formula is the same as for the layer2 transmit hash
+		policy.
+
+		This algorithm is not fully 802.3ad compliant.  A
+		single TCP or UDP conversation containing both
+		fragmented and unfragmented packets will see packets
+		striped across two interfaces.  This may result in out
+		of order delivery.  Most traffic types will not meet
+		this criteria, as TCP rarely fragments traffic, and
+		most UDP traffic is not involved in extended
+		conversations.  Other implementations of 802.3ad may
+		or may not tolerate this noncompliance.";
+		}
+	}
+  }
+
+  typedef rx-machine-state {
+	type enumeration {
+		enum RX_CURRENT {
+			description "LACP Rx Machine Current State";
+		}
+		enum RX_EXPIRED {
+			description "LACP Rx Machine Expired State";
+		}
+  		enum RX_DEFAULTED {
+			description "LACP Rx Machine Defaulted State";
+		}
+		enum RX_INITIALIZE {
+			description "LACP Rx Machine Initialize State";
+		}
+		enum RX_LACP_DISABLED {
+			description "LACP Rx Machine LACP Disabled State";
+		}
+		enum RX_PORT_DISABLE {
+			description "LACP Rx Machine Port Disabled State";
+		}		
+	}
+  }
+
+  typedef mux-machine-state {
+	type enumeration {
+		enum MUX_DETACHED {
+			description "LACP MUX Machine Detached State";
+		}
+		enum MUX_WAITING {
+			description "LACP MUX Machine Waiting State";
+		}
+		enum MUX_ATTACHED {
+			description "LACP MUX Machine Attached State";
+		}
+		enum MUX_COLLECTING {
+			description "LACP MUX Machine Collecting State";
+		}
+		enum MUX_DISTRIBUTING {
+			description "LACP MUX Machine Distributing State";
+		}
+		enum MUX_COLLECTING_DISTRIBUTING {
+			description "LACP MUX Machine Collecting Distributing State";
+		}
+	}
+  }
+
+  typedef churn-machine-state {
+	type enumeration {
+		enum CHURN_NO_CHURN {
+			description "LACP Churn Machine No Churn State";
+		}
+		enum CHURN_CHURN {
+			description "LACP Churn Machine Churn State";
+		}
+	} 
+  }
+
+
   // grouping statements
 
   grouping aggregation-lacp-config {
@@ -174,6 +311,13 @@ module openconfig-if-aggregate {
         Lower value is higher priority for determining which node
         is the controlling system.";
     }
+	
+	leaf lag-hash {
+		type aggregation-hash;
+		default LAYER2;
+		description
+		   "The tx hashing algorithm used by the lag group";
+	}
   }
 
   grouping aggregation-lacp-state {
@@ -307,6 +451,117 @@ module openconfig-if-aggregate {
         "Operational value of the protocol partner's key";
     }
 
+	// same as AggregationPort
+	leaf debug-id {
+		type uint32;
+		description 
+			"Debug Information Id";
+	}
+	
+	leaf rx-machine {
+		type rx-machine-state;
+		description
+			"Current Rx Machine State";
+	}
+	
+	leaf rx-time {
+		type uint32;
+		description
+			"Time at which the last LACPDU was received by a given port, 
+			in terms of centiseconds since the system was last reset";
+	}
+	
+	leaf mux-machine {
+		type mux-machine-state;
+		description
+			"Current MUX Machine State";
+	}
+	
+	leaf mux-reason {
+		type string;
+		description
+			"Reason for the most recent MUX state change";
+	} 
+	
+	leaf actor-churn-machine {
+		type churn-machine-state;
+		description
+			"Actor Churn Detection Machine State";
+	}
+	
+	leaf partner-churn-machine {
+		type churn-machine-state;
+		description
+			"Partner Churn Detection Machine State";
+	}
+	
+	leaf actor-churn-count {
+		type yang:counter64;
+		description
+			"Number of times the Actor State machine has entered the 
+			ACTOR_CHURN state";
+	}
+	
+	leaf partner-churn-count {
+		type yang:counter64;
+		description
+			"Number of times the Partner State machine has entered the 
+			ACTOR_CHURN state";
+	}
+	
+	leaf actor-sync-transition-count {
+		type yang:counter64;
+		description
+			"Number of times the Actor's Mux state machine has entered the 
+			IN_SYNC state.";
+	} 
+	
+	leaf partner-sync-transition-count {
+		type yang:counter64;
+		description
+			"Number of times the Partner's Mux state machine has entered the 
+			IN_SYNC state.";
+	} 
+	
+	leaf actor-change-count {
+		type yang:counter64;
+		description
+			"Number of times the Actor's perception of the LAG ID for the 
+			Aggregation Port has changed.";
+	}
+	
+	leaf partner-change-count {
+		type yang:counter64;
+		description
+			"Number of times the Partner's perception of the LAG ID for the 
+			Aggregation Port has changed.";
+	}
+	
+	leaf actor-cds-churn-machine {
+		type churn-machine-state;
+		description
+			"If supported Actor CDS Churn Machine State";
+	}
+	
+	leaf partner-cds-churn-machine {
+		type churn-machine-state;
+		description
+			"If supported Partner CDS Churn Machine State";
+	}
+	
+	leaf actor-cds-churn-count {
+		type yang:counter64;
+		description
+			"If supported the number of times the Actor CDS Churn state
+			has entered the ACTOR_CDS_CHURN state";
+	}
+	
+	leaf partner-cds-churn-count {
+		type yang:counter64;
+		description
+			"If supported the number of times the Actor CDS Churn state
+			has entered the ACTOR_CDS_CHURN state";
+	}
     // TODO: rjs: unclear whether this is required, it is referenced
     //            elsewhere under the state container. The grouping
     //            does not exist.
@@ -357,6 +612,30 @@ grouping aggregation-lacp-members-statistics {
         description
           "Number of LACPDU illegal packet errors";
       }
+		
+	  leaf lamp-in-pdu {
+		type yang:counter64;
+		description
+			"Number of LAMPDU received";	
+	  }
+	
+	  leaf lamp-in-response-pdu {
+		type yang:counter64;
+		description
+			"Number of LAMPDU Response received";
+	  }
+	
+	  leaf lamp-out-pdu {
+		type yang:counter64;
+		description
+			"Number of LAMPDU transmited";	
+	  }
+	
+	  leaf lamp-out-response-pdu {
+		type yang:counter64;
+		description
+			"Number of LAMPDU Response received";
+	  }
     }
   }
 
